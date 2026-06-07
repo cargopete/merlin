@@ -119,6 +119,27 @@ def similar(
     return RadioOut.of(result)
 
 
+@app.post("/lb-radio")
+def lb_radio(
+    prompt: str = Body(..., embed=True),
+    mode: str = Body("medium", embed=True),
+    size: int = Body(50, embed=True),
+    name: str | None = Body(None, embed=True),
+    dry_run: bool = Body(False, embed=True),
+) -> RadioOut:
+    from merlin.clients.listenbrainz import ListenBrainzAuthError
+
+    try:
+        result = Engine().build_lb_radio(
+            prompt, mode=mode, size=size, name=name, dry_run=dry_run
+        )
+    except (YTMusicError, ListenBrainzAuthError) as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return RadioOut.of(result)
+
+
 @app.post("/sync")
 def sync() -> dict:
     # Phase 4 will populate the local library mirror here.

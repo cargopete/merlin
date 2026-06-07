@@ -34,6 +34,24 @@ class Engine:
         self.settings = settings or get_settings()
         self.ytm = ytm or YTMusicClient(self.settings)
         self.db = db or get_db(self.settings)
+        self._resolver = None
+        self._lb = None
+
+    @property
+    def resolver(self):
+        if self._resolver is None:
+            from merlin.core.resolver import Resolver
+
+            self._resolver = Resolver(ytm=self.ytm, db=self.db, settings=self.settings)
+        return self._resolver
+
+    @property
+    def lb(self):
+        if self._lb is None:
+            from merlin.clients.listenbrainz import ListenBrainzClient
+
+            self._lb = ListenBrainzClient(self.settings)
+        return self._lb
 
     # --- resolution ----------------------------------------------------------
 
@@ -129,6 +147,27 @@ class Engine:
         raw = self._ytm_watch_candidates(seed, radio=False, limit=max(size, 25))
         tracks = self._tidy(raw, size)
         title = name or f"Similar to {seed.title}"
+        return self._maybe_write(
+            seed, tracks, title=title, prepend_seed=False, dry_run=dry_run
+        )
+
+    def build_lb_radio(
+        self,
+        prompt: str,
+        *,
+        mode: str = "medium",
+        size: int = 50,
+        name: str | None = None,
+        dry_run: bool = False,
+    ) -> RadioResult:
+        """ListenBrainz lb-radio passthrough: prompt -> JSPF -> YTM playlist."""
+        lb_tracks = self.lb.lb_radio(prompt, mode=mode)
+        if not lb_tracks:
+            raise ValueError(f"lb-radio returned nothing for prompt: {prompt!r}")
+        resolved = self.resolver.resolve_many_to_ytmusic(lb_tracks[: size * 2])
+        tracks = self._tidy(resolved, size)
+        seed = Track(title=prompt)
+        title = name or f"LB Radio: {prompt}"
         return self._maybe_write(
             seed, tracks, title=title, prepend_seed=False, dry_run=dry_run
         )

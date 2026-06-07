@@ -46,6 +46,18 @@ def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return r.json()
 
 
+def _local(fn):
+    """Run an in-process engine call, turning known failures into clean exits."""
+    from merlin.clients.listenbrainz import ListenBrainzAuthError
+    from merlin.clients.ytmusic import YTMusicError
+
+    try:
+        return fn()
+    except (YTMusicError, ListenBrainzAuthError, ValueError) as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+
 def _render_radio(data: dict[str, Any]) -> None:
     seed = data["seed"]
     table = Table(title=f"Seed: {seed['title']} — {', '.join(seed['artists']) or '?'}")
@@ -163,7 +175,39 @@ def radio(
         from merlin.core.engine import Engine
         from merlin.service.app import RadioOut
 
-        data = RadioOut.of(Engine().build_radio(query, size=size, dry_run=dry_run)).model_dump()
+        data = _local(
+            lambda: RadioOut.of(
+                Engine().build_radio(query, size=size, dry_run=dry_run)
+            ).model_dump()
+        )
+    _render_radio(data)
+
+
+@app.command(name="lb-radio")
+def lb_radio(
+    prompt: Annotated[str, typer.Argument(help="lb-radio prompt, e.g. artist:(Radiohead)")],
+    mode: Annotated[str, typer.Option(help="easy | medium | hard")] = "medium",
+    size: Annotated[int, typer.Option(help="Number of tracks")] = 50,
+    name: Annotated[str | None, typer.Option(help="Playlist name")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Don't write a playlist")] = False,
+) -> None:
+    """Generate a playlist from a ListenBrainz lb-radio prompt."""
+    if _daemon_up():
+        data = _post(
+            "/lb-radio",
+            {"prompt": prompt, "mode": mode, "size": size, "name": name, "dry_run": dry_run},
+        )
+    else:
+        from merlin.core.engine import Engine
+        from merlin.service.app import RadioOut
+
+        data = _local(
+            lambda: RadioOut.of(
+                Engine().build_lb_radio(
+                    prompt, mode=mode, size=size, name=name, dry_run=dry_run
+                )
+            ).model_dump()
+        )
     _render_radio(data)
 
 
@@ -184,9 +228,11 @@ def similar(
         from merlin.core.engine import Engine
         from merlin.service.app import RadioOut
 
-        data = RadioOut.of(
-            Engine().build_similar(seed, size=size, name=name, dry_run=dry_run)
-        ).model_dump()
+        data = _local(
+            lambda: RadioOut.of(
+                Engine().build_similar(seed, size=size, name=name, dry_run=dry_run)
+            ).model_dump()
+        )
     _render_radio(data)
 
 

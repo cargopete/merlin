@@ -34,8 +34,9 @@ src/merlin/
 
 - [x] **Phase 0** — Skeleton: config, SQLite+sqlite-vec, FastAPI `/status`,
       Typer CLI, ytmusicapi OAuth, and a working **YTM-native radio** end to end.
-- [ ] **Phase 1** — MBID resolver (ISRC-first MusicBrainz + fuzzy) and a
-      ListenBrainz `lb-radio` passthrough.
+- [x] **Phase 1** — MBID resolver (ISRC-first MusicBrainz + fuzzy) and a
+      ListenBrainz `lb-radio` passthrough. *(lb-radio needs `MERLIN_LISTENBRAINZ_TOKEN`
+      — LB started requiring a token for reads in 2025.)*
 - [ ] **Phase 2** — Multi-source candidates (Last.fm + LB labs + YTM watch) and
       source-normalised weighted fusion + MMR re-rank.
 - [ ] **Phase 3** — AcousticBrainz audio features → cosine similarity in the fusion.
