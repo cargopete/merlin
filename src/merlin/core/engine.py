@@ -36,6 +36,8 @@ class Engine:
         self.db = db or get_db(self.settings)
         self._resolver = None
         self._lb = None
+        self._lb_labs = None
+        self._lastfm = None
 
     @property
     def resolver(self):
@@ -52,6 +54,22 @@ class Engine:
 
             self._lb = ListenBrainzClient(self.settings)
         return self._lb
+
+    @property
+    def lb_labs(self):
+        if self._lb_labs is None:
+            from merlin.clients.listenbrainz import ListenBrainzLabsClient
+
+            self._lb_labs = ListenBrainzLabsClient(self.settings)
+        return self._lb_labs
+
+    @property
+    def lastfm(self):
+        if self._lastfm is None:
+            from merlin.clients.lastfm import LastFmClient
+
+            self._lastfm = LastFmClient(self.settings)
+        return self._lastfm
 
     # --- resolution ----------------------------------------------------------
 
@@ -94,20 +112,81 @@ class Engine:
                 confidence=1.0 if method == "search" else 0.5,
             )
 
-    # --- candidate generation (Phase 0: YTM-native) --------------------------
+    # --- candidate generation (Phase 2: multi-source) ------------------------
 
-    def _ytm_watch_candidates(
-        self, seed: Track, *, radio: bool, limit: int
-    ) -> list[Track]:
-        assert seed.video_id
-        cands = self.ytm.get_watch_playlist(seed.video_id, radio=radio, limit=limit)
-        out: list[Track] = []
-        for t in cands:
-            if not t.video_id or t.video_id == seed.video_id:
-                continue
-            self._cache_track(t, method="watch")
-            out.append(t)
-        return out
+    def _gather(self, seed: Track, *, radio: bool) -> dict[str, list[tuple[Track, float]]]:
+        """Fan out to every configured source; return per-source (track, raw)."""
+        results: dict[str, list[tuple[Track, float]]] = {}
+
+        # YouTube Music's own watch/radio queue — rank-based scores.
+        if seed.video_id:
+            watch = self.ytm.get_watch_playlist(seed.video_id, radio=radio, limit=50)
+            scored: list[tuple[Track, float]] = []
+            n = len(watch)
+            for i, t in enumerate(watch):
+                if t.video_id and t.video_id != seed.video_id:
+                    self._cache_track(t, method="watch")
+                    scored.append((t, float(n - i)))
+            if scored:
+                results["ytm_watch"] = scored
+
+        # Last.fm collaborative similarity (match ∈ [0,1]).
+        if self.lastfm.available and seed.title and seed.primary_artist:
+            lf = self.lastfm.similar_tracks(seed.primary_artist, seed.title, limit=50)
+            if lf:
+                results["lastfm"] = lf
+
+        # ListenBrainz session-based co-occurrence (needs the seed MBID).
+        if seed.mbid:
+            try:
+                lb = self.lb_labs.similar_recordings(seed.mbid)
+            except Exception:  # labs is experimental — never let it sink the request
+                lb = []
+            if lb:
+                results["listenbrainz"] = lb
+
+        # Persist edges we can key by MBID for later reuse / inspection.
+        if seed.mbid:
+            for source, lst in results.items():
+                for t, raw in lst:
+                    if t.mbid:
+                        self.db.add_cf_edge(seed.mbid, t.mbid, source, raw)
+        return results
+
+    def _fusion_build(
+        self,
+        seed: Track,
+        *,
+        size: int,
+        radio: bool,
+        prepend_seed: bool,
+        title: str,
+        dry_run: bool,
+    ) -> RadioResult:
+        from merlin.core.fusion import merge_candidates, mmr_rerank, score_candidates
+
+        source_results = self._gather(seed, radio=radio)
+        candidates = merge_candidates(seed, source_results)
+        if not candidates:
+            return RadioResult(seed=seed, tracks=[], playlist_id=None, playlist_url=None)
+
+        score_candidates(candidates, self.settings)
+        candidates.sort(key=lambda c: c.final_score, reverse=True)
+
+        # Resolve the strongest candidates to YTM videoIds (cached). Cap the work.
+        resolved: list = []
+        for cand in candidates:
+            if len(resolved) >= size * 2:
+                break
+            rt = self.resolver.to_ytmusic(cand.track)
+            if rt and rt.video_id:
+                resolved.append(cand)
+
+        ranked = mmr_rerank(resolved, size, self.settings.mmr_lambda)
+        tracks = self._tidy([c.track for c in ranked], size)
+        return self._maybe_write(
+            seed, tracks, title=title, prepend_seed=prepend_seed, dry_run=dry_run
+        )
 
     def _tidy(self, candidates: list[Track], size: int) -> list[Track]:
         """Dedup by videoId and apply the per-artist cap."""
@@ -134,21 +213,28 @@ class Engine:
         self, query: str, *, size: int = 50, dry_run: bool = False
     ) -> RadioResult:
         seed = self.resolve_seed(query)
-        raw = self._ytm_watch_candidates(seed, radio=True, limit=max(size, 25))
-        tracks = self._tidy(raw, size)
-        return self._maybe_write(
-            seed, tracks, title=f"Radio: {seed.title}", prepend_seed=True, dry_run=dry_run
+        self.resolver.mbid_for(seed)  # best-effort, enables the LB source
+        return self._fusion_build(
+            seed,
+            size=size,
+            radio=True,
+            prepend_seed=True,
+            title=f"Radio: {seed.title}",
+            dry_run=dry_run,
         )
 
     def build_similar(
         self, query: str, *, size: int = 50, name: str | None = None, dry_run: bool = False
     ) -> RadioResult:
         seed = self.resolve_seed(query)
-        raw = self._ytm_watch_candidates(seed, radio=False, limit=max(size, 25))
-        tracks = self._tidy(raw, size)
-        title = name or f"Similar to {seed.title}"
-        return self._maybe_write(
-            seed, tracks, title=title, prepend_seed=False, dry_run=dry_run
+        self.resolver.mbid_for(seed)
+        return self._fusion_build(
+            seed,
+            size=size,
+            radio=False,
+            prepend_seed=False,
+            title=name or f"Similar to {seed.title}",
+            dry_run=dry_run,
         )
 
     def build_lb_radio(

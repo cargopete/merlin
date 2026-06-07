@@ -37,8 +37,9 @@ src/merlin/
 - [x] **Phase 1** — MBID resolver (ISRC-first MusicBrainz + fuzzy) and a
       ListenBrainz `lb-radio` passthrough. *(lb-radio needs `MERLIN_LISTENBRAINZ_TOKEN`
       — LB started requiring a token for reads in 2025.)*
-- [ ] **Phase 2** — Multi-source candidates (Last.fm + LB labs + YTM watch) and
-      source-normalised weighted fusion + MMR re-rank.
+- [x] **Phase 2** — Multi-source candidates (Last.fm + LB labs `similar-recordings`
+      + YTM watch), max-normalised weighted fusion + cross-source agreement + MMR
+      re-rank. *(Last.fm needs `MERLIN_LASTFM_API_KEY`; LB labs needs no auth.)*
 - [ ] **Phase 3** — AcousticBrainz audio features → cosine similarity in the fusion.
 - [ ] **Phase 4** — Background sync (library/history/likes) via APScheduler.
 
