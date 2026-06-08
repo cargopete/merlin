@@ -236,5 +236,21 @@ def similar(
     _render_radio(data)
 
 
+@app.command()
+def sync() -> None:
+    """Mirror your YTM library, likes and history into the local cache."""
+    if _daemon_up():
+        data = _post("/sync", {})
+        counts = data["synced"]
+    else:
+        from merlin.core.engine import Engine
+
+        with console.status("Syncing library from YouTube Music…"):
+            counts = _local(Engine().sync_library)
+    console.print("[green]✓ synced[/green]")
+    for k, v in counts.items():
+        console.print(f"  {k}: {v}")
+
+
 if __name__ == "__main__":
     app()

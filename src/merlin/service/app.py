@@ -23,7 +23,18 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.ensure_dirs()
     get_db(settings)  # init schema eagerly
-    yield
+
+    scheduler = None
+    if settings.scheduler_enabled:
+        from merlin.service.scheduler import build_scheduler
+
+        scheduler = build_scheduler(settings)
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler:
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Merlin", version="0.1.0", lifespan=lifespan)
@@ -142,5 +153,13 @@ def lb_radio(
 
 @app.post("/sync")
 def sync() -> dict:
-    # Phase 4 will populate the local library mirror here.
-    raise HTTPException(status_code=501, detail="sync lands in Phase 4")
+    try:
+        counts = Engine().sync_library()
+    except YTMusicError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    return {"synced": counts}
+
+
+@app.post("/prefetch")
+def prefetch(limit: int = Body(100, embed=True)) -> dict:
+    return {"prefetched": Engine().prefetch_features(limit)}

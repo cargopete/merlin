@@ -185,7 +185,13 @@ class Database:
         row = self.query_one(
             "SELECT feature_vector FROM audio_features WHERE mbid=?", (mbid,)
         )
-        return _unpack(row["feature_vector"]) if row else None
+        if not row or row["feature_vector"] is None:
+            return None  # absent, or a negative-cache row (known to have no AB data)
+        return _unpack(row["feature_vector"])
+
+    def has_audio_record(self, mbid: str) -> bool:
+        """True if we've already looked this MBID up (positive or negative cache)."""
+        return self.query_one("SELECT 1 FROM audio_features WHERE mbid=?", (mbid,)) is not None
 
     def nearest_audio(self, vector: Sequence[float], k: int = 50) -> list[tuple[str, float]]:
         rows = self.query(

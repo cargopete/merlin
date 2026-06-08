@@ -43,7 +43,9 @@ src/merlin/
 - [x] **Phase 3** — AcousticBrainz low+high-level → 35-dim feature vectors (bulk,
       cached in `sqlite-vec`) → cosine audio similarity fused at `w_audio=0.4`,
       also driving MMR diversity. Degrades gracefully where AB has no coverage.
-- [ ] **Phase 4** — Background sync (library/history/likes) via APScheduler.
+- [x] **Phase 4** — Background sync via APScheduler (nightly library/likes/history
+      mirror + 6-hourly AcousticBrainz cache warm with negative caching), plus
+      `merlin sync` / `POST /sync` and `POST /prefetch`.
 
 ## Setup
 
@@ -81,7 +83,11 @@ uv run merlin radio "Teardrop — Massive Attack" --dry-run
 # Similar-tracks playlist
 uv run merlin similar --seed "Strobe — deadmau5" --size 50 --name "Like Strobe"
 
-# Run the daemon (the CLI will then route through it automatically)
+# Mirror your library/likes/history locally (also runs nightly in the daemon)
+uv run merlin sync
+
+# Run the daemon (the CLI will then route through it automatically; runs the
+# nightly library sync + 6-hourly AcousticBrainz cache-warm jobs)
 uv run merlin serve
 ```
 

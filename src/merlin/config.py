@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # --- Service ---
     host: str = "127.0.0.1"
     port: int = 7654
+    # Background APScheduler jobs (library sync + AB cache warm). Daemon only.
+    scheduler_enabled: bool = True
 
     @property
     def base_url(self) -> str:

@@ -210,9 +210,9 @@ class Engine:
             return
         from merlin.core.features import build_vector
 
-        # Which vectors do we still need to fetch?
+        # Which vectors have we never looked up? (skip both positive and negative cache)
         wanted = [seed.mbid] + [c.track.mbid for c in candidates if c.track.mbid]
-        missing = [m for m in dict.fromkeys(wanted) if self.db.get_audio_vector(m) is None]
+        missing = [m for m in dict.fromkeys(wanted) if not self.db.has_audio_record(m)]
         if missing:
             low = self.ab.low_level_bulk(missing)
             high = self.ab.high_level_bulk(missing)
@@ -220,6 +220,12 @@ class Engine:
                 vec = build_vector(low.get(mbid), high.get(mbid))
                 if vec is not None:
                     self.db.store_audio_vector(mbid, vec, source="acousticbrainz")
+                else:
+                    self.db.execute(
+                        "INSERT OR IGNORE INTO audio_features(mbid, feature_vector, source) "
+                        "VALUES(?,NULL,'none')",
+                        (mbid,),
+                    )
 
         seed_vec = self.db.get_audio_vector(seed.mbid)
         if seed_vec is None:
@@ -341,6 +347,73 @@ class Engine:
             playlist_id=pid,
             playlist_url=self.ytm.playlist_url(pid),
         )
+
+    # --- background sync / cache warming (Phase 4) ---------------------------
+
+    def sync_library(self) -> dict[str, int]:
+        """Mirror the user's YTM library, likes and recent history locally."""
+        import json
+
+        songs = self.ytm.get_library_songs(limit=5000)
+        liked = self.ytm.get_liked_songs(limit=5000)
+        history = self.ytm.get_history()
+
+        for t in songs:
+            if t.video_id:
+                self.db.execute(
+                    "INSERT OR REPLACE INTO library_songs"
+                    "(video_id, title, artists, album, synced_at) "
+                    "VALUES(?,?,?,?,datetime('now'))",
+                    (t.video_id, t.title, json.dumps(t.artists), t.album),
+                )
+                self._cache_track(t, method="library")
+        for t in liked:
+            if t.video_id:
+                self.db.execute(
+                    "INSERT OR REPLACE INTO liked_songs"
+                    "(video_id, title, artists, synced_at) "
+                    "VALUES(?,?,?,datetime('now'))",
+                    (t.video_id, t.title, json.dumps(t.artists)),
+                )
+        # History is a rolling snapshot — replace wholesale.
+        self.db.execute("DELETE FROM history")
+        for t in history:
+            if t.video_id:
+                self.db.execute(
+                    "INSERT INTO history(video_id, title, artists, synced_at) "
+                    "VALUES(?,?,?,datetime('now'))",
+                    (t.video_id, t.title, json.dumps(t.artists)),
+                )
+        return {"library": len(songs), "liked": len(liked), "history": len(history)}
+
+    def prefetch_features(self, limit: int = 50) -> int:
+        """Warm the AcousticBrainz cache for known MBIDs lacking feature vectors."""
+        from merlin.core.features import build_vector
+
+        rows = self.db.query(
+            "SELECT DISTINCT mbid FROM yt_index WHERE mbid IS NOT NULL "
+            "AND mbid NOT IN (SELECT mbid FROM audio_features) LIMIT ?",
+            (limit,),
+        )
+        mbids = [r["mbid"] for r in rows]
+        if not mbids:
+            return 0
+        low = self.ab.low_level_bulk(mbids)
+        high = self.ab.high_level_bulk(mbids)
+        stored = 0
+        for mbid in mbids:
+            vec = build_vector(low.get(mbid), high.get(mbid))
+            if vec is not None:
+                self.db.store_audio_vector(mbid, vec, source="acousticbrainz")
+                stored += 1
+            else:
+                # Negative cache: stop re-querying known-missing MBIDs every cycle.
+                self.db.execute(
+                    "INSERT OR IGNORE INTO audio_features(mbid, feature_vector, source) "
+                    "VALUES(?,NULL,'none')",
+                    (mbid,),
+                )
+        return stored
 
 
 def _extract_video_id(query: str) -> str | None:
