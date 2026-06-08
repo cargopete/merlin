@@ -120,6 +120,29 @@ def test_settings_paths(tmp_path):
     assert s.base_url == "http://127.0.0.1:7654"
 
 
+def test_normalise_header_block():
+    from merlin.clients.ytmusic import _normalise_header_block
+
+    two_col = (
+        ":authority\nmusic.youtube.com\n:method\nPOST\n"
+        "accept\n*/*\ncontent-encoding\ngzip\ncontent-length\n2547\n"
+        "authorization\nSAPISIDHASH fake\ncookie\na=b; c=d\nuser-agent\nMoz/5"
+    )
+    out = _normalise_header_block(two_col)
+    lines = out.splitlines()
+    assert "authorization: SAPISIDHASH fake" in lines
+    assert "cookie: a=b; c=d" in lines
+    assert "user-agent: Moz/5" in lines
+    # pseudo-headers and replay-breaking headers dropped
+    assert not any(ln.startswith(":") for ln in lines)
+    assert not any(ln.lower().startswith("content-encoding") for ln in lines)
+    assert not any(ln.lower().startswith("content-length") for ln in lines)
+
+    # A proper block is returned unchanged.
+    proper = "cookie: a=b\nauthorization: x\nuser-agent: M\naccept: */*\norigin: o"
+    assert _normalise_header_block(proper) == proper
+
+
 def test_ytm_auth_method_detection(tmp_path):
     from merlin.clients.ytmusic import YTMusicClient
 

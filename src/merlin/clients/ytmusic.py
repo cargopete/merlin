@@ -21,6 +21,35 @@ class YTMusicError(RuntimeError):
     pass
 
 
+# Headers that must not be replayed from a captured request.
+_DROP_HEADERS = {"content-length", "content-encoding"}
+
+
+def _normalise_header_block(raw: str) -> str:
+    """Coerce pasted headers into a ``Name: Value`` block.
+
+    Passes a proper header block straight through. If the paste is the DevTools
+    two-column copy (alternating ``name`` / ``value`` lines, with HTTP/2
+    pseudo-headers like ``:authority``), it pairs and reformats it.
+    """
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    colonish = sum(1 for ln in lines if ": " in ln)
+    if colonish >= 4:
+        return raw  # already a normal "Name: Value" block
+
+    out: list[str] = []
+    i = 0
+    while i + 1 < len(lines):
+        name, value = lines[i], lines[i + 1]
+        i += 2
+        if name.startswith(":"):  # HTTP/2 pseudo-header — not a real header
+            continue
+        if name.lower() in _DROP_HEADERS:
+            continue
+        out.append(f"{name}: {value}")
+    return "\n".join(out)
+
+
 def _artists_from(entry: dict[str, Any]) -> list[str]:
     arts = entry.get("artists") or []
     return [a["name"] for a in arts if a.get("name")]
@@ -66,10 +95,14 @@ class YTMusicClient:
     def setup_browser(self, headers_raw: str | None = None) -> None:
         """Persist browser-headers auth (browser.json). No Google Cloud needed.
 
-        If ``headers_raw`` is None, ytmusicapi reads the pasted headers from stdin.
+        Accepts either a proper ``Name: Value`` header block or the two-column
+        DevTools copy (alternating name/value lines, HTTP/2 pseudo-headers) — the
+        latter is normalised so the usual copy-paste mistake just works.
         """
         from ytmusicapi import setup
 
+        if headers_raw is not None:
+            headers_raw = _normalise_header_block(headers_raw)
         self.settings.ensure_dirs()
         setup(filepath=str(self.settings.browser_file), headers_raw=headers_raw)
 
