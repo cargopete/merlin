@@ -23,14 +23,21 @@ feature vectors, similarity edges, and a library snapshot.
 ```
 src/merlin/
   config.py          # pydantic-settings, paths, fusion weights
+  ratelimit.py       # shared token-bucket limiter + retry (all clients)
   db/                # SQLite + sqlite-vec: schema, access layer
-  core/              # models, normalisation, the recommendation engine
-  clients/           # ytmusic (more services land in later phases)
-  service/app.py     # FastAPI daemon
+  core/              # models, normalisation, resolver, fusion, engine, features
+  clients/           # ytmusic, musicbrainz, listenbrainz, lastfm, acousticbrainz
+  service/           # FastAPI daemon (app.py) + APScheduler jobs (scheduler.py)
   cli/main.py        # Typer + Rich CLI
 ```
 
-## Status — build phases
+## Status
+
+**v0.1.0 — working end to end.** All build phases below are complete, and the full
+pipeline has been verified live: authenticate → seed → multi-source fusion → write
+a real private playlist to YouTube Music. 49 tests, ruff-clean.
+
+### Build phases
 
 - [x] **Phase 0** — Skeleton: config, SQLite+sqlite-vec, FastAPI `/status`,
       Typer CLI, ytmusicapi OAuth, and a working **YTM-native radio** end to end.
