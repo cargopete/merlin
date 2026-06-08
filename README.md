@@ -58,24 +58,56 @@ cp .env.example .env   # fill in your keys
 
 Two options — browser headers (no Google Cloud) or OAuth.
 
-**Browser headers (default, recommended for a personal tool):**
+#### Option 1 — Browser headers (default, no Google Cloud)
 
 ```bash
 uv run merlin auth ytm
 ```
 
-Paste the request headers from a logged-in `music.youtube.com` tab (DevTools →
-Network → a `POST` to `/browse` → copy request headers), press Ctrl-D. Writes
-`browser.json`; valid ~2 years. No Google Cloud Console, and it can also upload.
+Then, when prompted to paste headers:
 
-**OAuth (device flow):**
+1. Open **[music.youtube.com](https://music.youtube.com)** in your browser, logged in.
+2. Open DevTools (`Cmd/Ctrl-Opt-I`) → **Network** tab.
+3. Type `browse` in the filter box, then click around the app so a request appears.
+4. Click a **POST** request to `…/youtubei/v1/browse`.
+5. Copy its **request headers**:
+   - **Firefox:** right-click the request → Copy → **Copy Request Headers**
+   - **Chrome/Edge:** in the Headers tab, find *Request Headers* and copy the block
+     (the two-column "name / value" copy works too — Merlin normalises it)
+6. Paste into the terminal, then press **Ctrl-D** (Windows: Ctrl-Z then Enter).
+
+Writes `browser.json` (valid ~2 years, until you log out). No Google Cloud, and it
+can also upload.
+
+> **Security:** those headers contain your session cookies. Paste them only into
+> your own terminal — never into a chat, issue, or paste-bin. If they leak, sign
+> out of YouTube and re-auth to rotate them.
+
+#### Option 2 — OAuth device flow
 
 1. In Google Cloud, create an OAuth client of type **"TVs and Limited Input
    devices"** and put the id/secret in `.env`
    (`MERLIN_YTM_CLIENT_ID` / `MERLIN_YTM_CLIENT_SECRET`).
-2. `uv run merlin auth ytm --oauth` — writes `oauth.json`; the token auto-refreshes.
+2. `uv run merlin auth ytm --oauth` — prints a code to enter at `google.com/device`;
+   approve on any device. Writes `oauth.json`; the token auto-refreshes.
 
-If both exist, browser headers take precedence.
+If both `browser.json` and `oauth.json` exist, browser headers take precedence.
+Check which is active with `merlin status` (e.g. `✓ ytm (browser)`).
+
+### Optional similarity sources
+
+These are optional — Merlin degrades gracefully without them, but each one adds a
+signal to the fusion. Set them in `.env`:
+
+| Source | Env var | Where to get it |
+|---|---|---|
+| **Last.fm** | `MERLIN_LASTFM_API_KEY` | [last.fm/api/account/create](https://www.last.fm/api/account/create) |
+| **ListenBrainz** | `MERLIN_LISTENBRAINZ_TOKEN` | [listenbrainz.org/settings](https://listenbrainz.org/settings/) (needed for `lb-radio`) |
+| **MusicBrainz** | `MERLIN_CONTACT_EMAIL` | your email — MusicBrainz blocks anonymous clients |
+
+ListenBrainz `similar-recordings`, MusicBrainz and AcousticBrainz need no key
+(just a contact email for MusicBrainz). YouTube Music's own watch-radio works as
+soon as you're authenticated above.
 
 ## Usage
 
@@ -92,6 +124,9 @@ uv run merlin radio "Teardrop — Massive Attack" --dry-run
 
 # Similar-tracks playlist
 uv run merlin similar --seed "Strobe — deadmau5" --size 50 --name "Like Strobe"
+
+# Playlist from a ListenBrainz lb-radio prompt (needs MERLIN_LISTENBRAINZ_TOKEN)
+uv run merlin lb-radio "artist:(Radiohead)" --mode medium
 
 # Mirror your library/likes/history locally (also runs nightly in the daemon)
 uv run merlin sync
