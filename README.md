@@ -76,8 +76,17 @@ Then, when prompted to paste headers:
      (the two-column "name / value" copy works too — Merlin normalises it)
 6. Paste into the terminal, then press **Ctrl-D** (Windows: Ctrl-Z then Enter).
 
-Writes `browser.json` (valid ~2 years, until you log out). No Google Cloud, and it
-can also upload.
+**Prefer not to paste into a prompt?** Save the headers to a file and point Merlin
+at it (easier, and avoids the Ctrl-D faff):
+
+```bash
+# paste the headers into headers.txt with any editor, then:
+uv run merlin auth ytm --from-file headers.txt
+rm headers.txt   # delete it afterwards — it holds your session cookies
+```
+
+Either way writes `browser.json` (valid ~2 years, until you log out). No Google
+Cloud, and it can also upload.
 
 > **Security:** those headers contain your session cookies. Paste them only into
 > your own terminal — never into a chat, issue, or paste-bin. If they leak, sign

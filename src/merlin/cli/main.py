@@ -6,6 +6,7 @@ running the engine in-process when it isn't. Either way you get the same result.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -152,6 +153,8 @@ def _browser_auth_ytm() -> None:
         "4. Copy the [cyan]request headers[/cyan] (in Firefox: right-click → Copy → "
         "Copy Request Headers; in Chrome: copy the raw headers block).\n"
         "5. Paste them below, then press [cyan]Ctrl-D[/cyan] (Ctrl-Z then Enter on Windows).\n"
+        "\n[dim]Tip: hate the Ctrl-D dance? Save the headers to a file and run\n"
+        "      merlin auth ytm --from-file headers.txt[/dim]\n"
     )
     console.print("[dim]Paste headers now:[/dim]")
     headers_raw = sys.stdin.read().strip()
@@ -166,6 +169,10 @@ def _browser_auth_ytm() -> None:
 def auth(
     service: Annotated[str, typer.Argument(help="ytm | lastfm | listenbrainz")],
     oauth: Annotated[bool, typer.Option("--oauth", help="Use OAuth, not browser headers")] = False,
+    from_file: Annotated[
+        Path | None,
+        typer.Option("--from-file", help="Read browser headers from a file (no pasting)"),
+    ] = None,
     open_browser: Annotated[bool, typer.Option(help="Open the OAuth URL (with --oauth)")] = False,
 ) -> None:
     """Authenticate a backend service."""
@@ -178,6 +185,13 @@ def auth(
                 console.print("Starting YouTube Music OAuth device flow…")
                 YTMusicClient().setup_oauth(open_browser=open_browser)
                 console.print("[green]✓ oauth.json written.[/green]")
+            elif from_file:
+                raw = from_file.read_text()
+                if not raw.strip():
+                    console.print(f"[red]{from_file} is empty.[/red]")
+                    raise typer.Exit(1)
+                YTMusicClient().setup_browser(headers_raw=raw)
+                console.print(f"[green]✓ browser.json written[/green] (from {from_file})")
             else:
                 _browser_auth_ytm()
         except YTMusicError as e:
