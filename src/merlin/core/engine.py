@@ -38,6 +38,7 @@ class Engine:
         self._lb = None
         self._lb_labs = None
         self._lastfm = None
+        self._ab = None
 
     @property
     def resolver(self):
@@ -70,6 +71,14 @@ class Engine:
 
             self._lastfm = LastFmClient(self.settings)
         return self._lastfm
+
+    @property
+    def ab(self):
+        if self._ab is None:
+            from merlin.clients.acousticbrainz import AcousticBrainzClient
+
+            self._ab = AcousticBrainzClient(self.settings)
+        return self._ab
 
     # --- resolution ----------------------------------------------------------
 
@@ -170,12 +179,19 @@ class Engine:
         if not candidates:
             return RadioResult(seed=seed, tracks=[], playlist_id=None, playlist_url=None)
 
+        # First pass: CF-only ranking to pick which candidates are worth the AB cost.
         score_candidates(candidates, self.settings)
         candidates.sort(key=lambda c: c.final_score, reverse=True)
+        shortlist = candidates[: size * 3]
+
+        # Audio features (Phase 3) for the shortlist, then re-score with the term in.
+        self._apply_audio(seed, shortlist)
+        score_candidates(shortlist, self.settings)
+        shortlist.sort(key=lambda c: c.final_score, reverse=True)
 
         # Resolve the strongest candidates to YTM videoIds (cached). Cap the work.
         resolved: list = []
-        for cand in candidates:
+        for cand in shortlist:
             if len(resolved) >= size * 2:
                 break
             rt = self.resolver.to_ytmusic(cand.track)
@@ -187,6 +203,42 @@ class Engine:
         return self._maybe_write(
             seed, tracks, title=title, prepend_seed=prepend_seed, dry_run=dry_run
         )
+
+    def _apply_audio(self, seed: Track, candidates: list) -> None:
+        """Attach cosine audio_score (seed vs candidate) where AB has data."""
+        if not seed.mbid:
+            return
+        from merlin.core.features import build_vector
+
+        # Which vectors do we still need to fetch?
+        wanted = [seed.mbid] + [c.track.mbid for c in candidates if c.track.mbid]
+        missing = [m for m in dict.fromkeys(wanted) if self.db.get_audio_vector(m) is None]
+        if missing:
+            low = self.ab.low_level_bulk(missing)
+            high = self.ab.high_level_bulk(missing)
+            for mbid in missing:
+                vec = build_vector(low.get(mbid), high.get(mbid))
+                if vec is not None:
+                    self.db.store_audio_vector(mbid, vec, source="acousticbrainz")
+
+        seed_vec = self.db.get_audio_vector(seed.mbid)
+        if seed_vec is None:
+            return  # seed has no AB data → leave audio term out entirely
+
+        import numpy as np
+
+        sv = np.asarray(seed_vec, dtype=float)
+        sv_norm = float(np.linalg.norm(sv))
+        for cand in candidates:
+            if not cand.track.mbid:
+                continue
+            cv_list = self.db.get_audio_vector(cand.track.mbid)
+            if cv_list is None:
+                continue
+            cv = np.asarray(cv_list, dtype=float)
+            denom = sv_norm * float(np.linalg.norm(cv))
+            cand.audio_score = float(sv.dot(cv) / denom) if denom else 0.0
+            cand._vec = cv_list
 
     def _tidy(self, candidates: list[Track], size: int) -> list[Track]:
         """Dedup by videoId and apply the per-artist cap."""

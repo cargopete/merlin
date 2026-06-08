@@ -125,10 +125,21 @@ class FakeLabs:
         ]
 
 
+class FakeABNoData:
+    """No AcousticBrainz coverage — exercises graceful audio degradation."""
+
+    def low_level_bulk(self, mbids):
+        return {}
+
+    def high_level_bulk(self, mbids):
+        return {}
+
+
 def test_engine_fusion_dry_run(settings, db):
     eng = Engine(ytm=FakeYTM(), db=db, settings=settings)
     eng._resolver = FakeResolver()
     eng._lb_labs = FakeLabs()
+    eng._ab = FakeABNoData()
     # Last.fm unavailable (no api key) — source simply skipped.
     seed = Track(title="Bohemian Rhapsody", artists=["Queen"], video_id="vSeed", mbid="seed")
     eng.resolve_seed = lambda q: seed  # bypass YTM search

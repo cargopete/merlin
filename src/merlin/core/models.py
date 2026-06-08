@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 # Noise we strip from titles before fuzzy comparison.
 _PARENS = re.compile(r"\s*[\(\[].*?[\)\]]\s*")
@@ -60,6 +60,9 @@ class Candidate(BaseModel):
     cf_score: float = 0.0
     pop_score: float = 0.0
     final_score: float = 0.0
+
+    # Audio feature vector, attached during Phase 3 for MMR cosine diversity.
+    _vec: list[float] | None = PrivateAttr(default=None)
 
     @property
     def key(self) -> str:

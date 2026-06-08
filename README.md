@@ -40,7 +40,9 @@ src/merlin/
 - [x] **Phase 2** — Multi-source candidates (Last.fm + LB labs `similar-recordings`
       + YTM watch), max-normalised weighted fusion + cross-source agreement + MMR
       re-rank. *(Last.fm needs `MERLIN_LASTFM_API_KEY`; LB labs needs no auth.)*
-- [ ] **Phase 3** — AcousticBrainz audio features → cosine similarity in the fusion.
+- [x] **Phase 3** — AcousticBrainz low+high-level → 35-dim feature vectors (bulk,
+      cached in `sqlite-vec`) → cosine audio similarity fused at `w_audio=0.4`,
+      also driving MMR diversity. Degrades gracefully where AB has no coverage.
 - [ ] **Phase 4** — Background sync (library/history/likes) via APScheduler.
 
 ## Setup
