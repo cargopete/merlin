@@ -12,6 +12,7 @@ wheels/
 # Secrets & local state — never commit these
 .env
 oauth.json
+browser.json
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

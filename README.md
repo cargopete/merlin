@@ -54,18 +54,28 @@ uv sync
 cp .env.example .env   # fill in your keys
 ```
 
-### YouTube Music auth (OAuth, required for writes)
+### YouTube Music auth (required for everything)
+
+Two options — browser headers (no Google Cloud) or OAuth.
+
+**Browser headers (default, recommended for a personal tool):**
+
+```bash
+uv run merlin auth ytm
+```
+
+Paste the request headers from a logged-in `music.youtube.com` tab (DevTools →
+Network → a `POST` to `/browse` → copy request headers), press Ctrl-D. Writes
+`browser.json`; valid ~2 years. No Google Cloud Console, and it can also upload.
+
+**OAuth (device flow):**
 
 1. In Google Cloud, create an OAuth client of type **"TVs and Limited Input
-   devices"**. Put the id/secret in `.env`
+   devices"** and put the id/secret in `.env`
    (`MERLIN_YTM_CLIENT_ID` / `MERLIN_YTM_CLIENT_SECRET`).
-2. Run the device flow once:
+2. `uv run merlin auth ytm --oauth` — writes `oauth.json`; the token auto-refreshes.
 
-   ```bash
-   uv run merlin auth ytm
-   ```
-
-   This writes `oauth.json` into the data dir; the token auto-refreshes.
+If both exist, browser headers take precedence.
 
 ## Usage
 

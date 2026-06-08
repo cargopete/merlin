@@ -52,8 +52,26 @@ class YTMusicClient:
 
     # --- auth ----------------------------------------------------------------
 
+    def auth_method(self) -> str | None:
+        """Which auth is configured. Browser headers take precedence over OAuth."""
+        if self.settings.browser_file.exists():
+            return "browser"
+        if self.settings.oauth_file.exists():
+            return "oauth"
+        return None
+
     def is_authenticated(self) -> bool:
-        return self.settings.oauth_file.exists()
+        return self.auth_method() is not None
+
+    def setup_browser(self, headers_raw: str | None = None) -> None:
+        """Persist browser-headers auth (browser.json). No Google Cloud needed.
+
+        If ``headers_raw`` is None, ytmusicapi reads the pasted headers from stdin.
+        """
+        from ytmusicapi import setup
+
+        self.settings.ensure_dirs()
+        setup(filepath=str(self.settings.browser_file), headers_raw=headers_raw)
 
     def setup_oauth(self, open_browser: bool = False) -> None:
         """Run the device OAuth flow and persist oauth.json. Interactive."""
@@ -75,20 +93,28 @@ class YTMusicClient:
     @property
     def yt(self) -> Any:
         if self._yt is None:
-            from ytmusicapi import OAuthCredentials, YTMusic
+            from ytmusicapi import YTMusic
 
-            if not self.is_authenticated():
+            method = self.auth_method()
+            if method == "browser":
+                self._yt = YTMusic(
+                    str(self.settings.browser_file), language=self.settings.ytm_language
+                )
+            elif method == "oauth":
+                from ytmusicapi import OAuthCredentials
+
+                if not (self.settings.ytm_client_id and self.settings.ytm_client_secret):
+                    raise YTMusicError("Missing YTM OAuth client id/secret in settings.")
+                self._yt = YTMusic(
+                    str(self.settings.oauth_file),
+                    oauth_credentials=OAuthCredentials(
+                        client_id=self.settings.ytm_client_id,
+                        client_secret=self.settings.ytm_client_secret,
+                    ),
+                    language=self.settings.ytm_language,
+                )
+            else:
                 raise YTMusicError("Not authenticated. Run: merlin auth ytm")
-            if not (self.settings.ytm_client_id and self.settings.ytm_client_secret):
-                raise YTMusicError("Missing YTM OAuth client id/secret in settings.")
-            self._yt = YTMusic(
-                str(self.settings.oauth_file),
-                oauth_credentials=OAuthCredentials(
-                    client_id=self.settings.ytm_client_id,
-                    client_secret=self.settings.ytm_client_secret,
-                ),
-                language=self.settings.ytm_language,
-            )
         return self._yt
 
     # --- reads (≤4/s via shared bucket) --------------------------------------

@@ -86,15 +86,17 @@ def status() -> dict:
 
     settings = get_settings()
     db = get_db(settings)
+    ytm = YTMusicClient(settings)
     return {
         "service": "merlin",
         "version": "0.1.0",
         "data_dir": str(settings.data_dir),
         "auth": {
-            "ytm": YTMusicClient(settings).is_authenticated(),
+            "ytm": ytm.is_authenticated(),
             "lastfm": bool(settings.lastfm_api_key),
             "listenbrainz": bool(settings.listenbrainz_token),
         },
+        "ytm_method": ytm.auth_method(),
         "db": db.stats(),
     }
 

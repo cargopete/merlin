@@ -116,4 +116,18 @@ def test_settings_paths(tmp_path):
     s = Settings(data_dir=tmp_path)
     assert s.db_path == tmp_path / "db.sqlite"
     assert s.oauth_file == tmp_path / "oauth.json"
+    assert s.browser_file == tmp_path / "browser.json"
     assert s.base_url == "http://127.0.0.1:7654"
+
+
+def test_ytm_auth_method_detection(tmp_path):
+    from merlin.clients.ytmusic import YTMusicClient
+
+    s = Settings(data_dir=tmp_path)
+    c = YTMusicClient(s)
+    assert c.auth_method() is None and c.is_authenticated() is False
+    s.oauth_file.write_text("{}")
+    assert c.auth_method() == "oauth" and c.is_authenticated() is True
+    # browser headers take precedence over OAuth when both exist
+    s.browser_file.write_text("{}")
+    assert c.auth_method() == "browser"

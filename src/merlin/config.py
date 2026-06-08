@@ -64,6 +64,11 @@ class Settings(BaseSettings):
         # ytmusicapi OAuth token store
         return self.data_dir / "oauth.json"
 
+    @property
+    def browser_file(self) -> Path:
+        # ytmusicapi browser-headers auth store (no Google Cloud needed)
+        return self.data_dir / "browser.json"
+
     # --- YouTube Music (OAuth, "TVs and Limited Input devices" client) ---
     ytm_client_id: str | None = None
     ytm_client_secret: str | None = None

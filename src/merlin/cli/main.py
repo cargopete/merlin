@@ -111,13 +111,15 @@ def status() -> None:
         from merlin.db.database import get_db
 
         s = get_settings()
+        ytm = YTMusicClient(s)
         data = {
             "data_dir": str(s.data_dir),
             "auth": {
-                "ytm": YTMusicClient(s).is_authenticated(),
+                "ytm": ytm.is_authenticated(),
                 "lastfm": bool(s.lastfm_api_key),
                 "listenbrainz": bool(s.listenbrainz_token),
             },
+            "ytm_method": ytm.auth_method(),
             "db": get_db(s).stats(),
         }
         source = "local"
@@ -127,16 +129,44 @@ def status() -> None:
     auth = data["auth"]
     for svc, ok in auth.items():
         mark = "[green]✓[/green]" if ok else "[red]✗[/red]"
-        console.print(f"  {mark} {svc}")
+        suffix = ""
+        if svc == "ytm" and ok and data.get("ytm_method"):
+            suffix = f" [dim]({data['ytm_method']})[/dim]"
+        console.print(f"  {mark} {svc}{suffix}")
     console.print("  cache:")
     for table, n in data["db"].items():
         console.print(f"    {table}: {n}")
 
 
+def _browser_auth_ytm() -> None:
+    """Interactive browser-headers setup — no Google Cloud required."""
+    import sys
+
+    from merlin.clients.ytmusic import YTMusicClient
+
+    console.print("[bold]YouTube Music — browser-headers auth[/bold]")
+    console.print(
+        "1. Open [cyan]https://music.youtube.com[/cyan] in your browser (logged in).\n"
+        "2. Open DevTools → [cyan]Network[/cyan] tab, filter for [cyan]/browse[/cyan].\n"
+        "3. Click a [cyan]POST[/cyan] request to music.youtube.com/...browse.\n"
+        "4. Copy the [cyan]request headers[/cyan] (in Firefox: right-click → Copy → "
+        "Copy Request Headers; in Chrome: copy the raw headers block).\n"
+        "5. Paste them below, then press [cyan]Ctrl-D[/cyan] (Ctrl-Z then Enter on Windows).\n"
+    )
+    console.print("[dim]Paste headers now:[/dim]")
+    headers_raw = sys.stdin.read().strip()
+    if not headers_raw:
+        console.print("[red]No headers pasted — aborted.[/red]")
+        raise typer.Exit(1)
+    YTMusicClient().setup_browser(headers_raw=headers_raw)
+    console.print("[green]✓ browser.json written.[/green]")
+
+
 @app.command()
 def auth(
     service: Annotated[str, typer.Argument(help="ytm | lastfm | listenbrainz")],
-    open_browser: Annotated[bool, typer.Option(help="Open the OAuth URL")] = False,
+    oauth: Annotated[bool, typer.Option("--oauth", help="Use OAuth, not browser headers")] = False,
+    open_browser: Annotated[bool, typer.Option(help="Open the OAuth URL (with --oauth)")] = False,
 ) -> None:
     """Authenticate a backend service."""
     service = service.lower()
@@ -144,9 +174,12 @@ def auth(
         from merlin.clients.ytmusic import YTMusicClient, YTMusicError
 
         try:
-            console.print("Starting YouTube Music OAuth device flow…")
-            YTMusicClient().setup_oauth(open_browser=open_browser)
-            console.print("[green]✓ oauth.json written.[/green]")
+            if oauth:
+                console.print("Starting YouTube Music OAuth device flow…")
+                YTMusicClient().setup_oauth(open_browser=open_browser)
+                console.print("[green]✓ oauth.json written.[/green]")
+            else:
+                _browser_auth_ytm()
         except YTMusicError as e:
             console.print(f"[red]{e}[/red]")
             raise typer.Exit(1) from e
