@@ -11,8 +11,6 @@ remix vs regional variant), so matching is conservative and records a confidence
 
 from __future__ import annotations
 
-import time
-
 from rapidfuzz import fuzz
 
 from merlin.clients.musicbrainz import MBRecording, MusicBrainzClient
@@ -24,7 +22,6 @@ from merlin.db.database import Database, get_db
 DURATION_TOL_MS = 5000
 TITLE_THRESHOLD = 0.82
 ARTIST_THRESHOLD = 0.70
-YTM_READ_SLEEP_S = 0.2  # gentle on YTM's web client
 
 
 def _sim(a: str, b: str) -> float:
@@ -142,8 +139,8 @@ class Resolver:
         query = f"{track.title} {track.primary_artist}".strip()
         if not query:
             return None
+        # Read throttling now lives in YTMusicClient (shared ytm_read bucket).
         candidates = self.ytm.search_songs(query, limit=5)
-        time.sleep(YTM_READ_SLEEP_S)
 
         best = self._best_ytm(track, candidates)
         if best is None:

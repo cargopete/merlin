@@ -18,7 +18,8 @@ dependencies = [
     # HTTP + resilience
     "httpx[http2]>=0.28.0",
     "tenacity>=9.0.0",
-    "aiolimiter>=1.2.0",
+    # NB: a thread-safe token bucket (merlin.ratelimit) is used instead of
+    # aiolimiter — the client stack is synchronous, so async limiting won't fit.
     # Scheduling
     "apscheduler>=3.11.0",
     # Models / config

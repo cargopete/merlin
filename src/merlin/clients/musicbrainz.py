@@ -13,8 +13,15 @@ from __future__ import annotations
 import musicbrainzngs
 
 from merlin.config import Settings, get_settings
+from merlin.ratelimit import transient_retry
 
 _CONFIGURED = False
+
+# musicbrainzngs already enforces ≤1 req/s; this only adds resilience to
+# transient network blips (it does NOT retry ResponseError / 4xx).
+@transient_retry(musicbrainzngs.NetworkError, attempts=3)
+def _retry(fn):
+    return fn()
 
 
 def _ensure_configured(settings: Settings) -> None:
@@ -62,8 +69,8 @@ class MusicBrainzClient:
 
     def by_isrc(self, isrc: str) -> list[MBRecording]:
         try:
-            res = musicbrainzngs.get_recordings_by_isrc(
-                isrc, includes=["artists"]
+            res = _retry(
+                lambda: musicbrainzngs.get_recordings_by_isrc(isrc, includes=["artists"])
             )
         except musicbrainzngs.ResponseError:
             return []
@@ -77,7 +84,7 @@ class MusicBrainzClient:
         if artist:
             kwargs["artist"] = artist
         try:
-            res = musicbrainzngs.search_recordings(**kwargs)
+            res = _retry(lambda: musicbrainzngs.search_recordings(**kwargs))
         except musicbrainzngs.ResponseError:
             return []
         return [MBRecording(r) for r in res.get("recording-list", [])]

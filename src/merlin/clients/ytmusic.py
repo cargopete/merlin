@@ -10,13 +10,11 @@ write loops earn HTTP 400 storms. Be a good citizen.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from merlin.config import Settings, get_settings
 from merlin.core.models import Track
-
-WRITE_SLEEP_S = 2.0  # conservative gap between write ops
+from merlin.ratelimit import limiter
 
 
 class YTMusicError(RuntimeError):
@@ -51,7 +49,6 @@ class YTMusicClient:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
         self._yt: Any = None
-        self._last_write = 0.0
 
     # --- auth ----------------------------------------------------------------
 
@@ -94,54 +91,62 @@ class YTMusicClient:
             )
         return self._yt
 
-    def _throttle_write(self) -> None:
-        elapsed = time.monotonic() - self._last_write
-        if elapsed < WRITE_SLEEP_S:
-            time.sleep(WRITE_SLEEP_S - elapsed)
-        self._last_write = time.monotonic()
-
-    # --- reads ---------------------------------------------------------------
+    # --- reads (≤4/s via shared bucket) --------------------------------------
 
     def search_songs(self, query: str, limit: int = 5) -> list[Track]:
+        limiter("ytm_read").acquire()
         results = self.yt.search(query, filter="songs", limit=limit)
         return [_entry_to_track(r) for r in results if r.get("videoId")]
 
     def get_song(self, video_id: str) -> dict[str, Any]:
+        limiter("ytm_read").acquire()
         return self.yt.get_song(video_id)
 
     def get_watch_playlist(
         self, video_id: str, *, radio: bool = True, limit: int = 25
     ) -> list[Track]:
+        limiter("ytm_read").acquire()
         res = self.yt.get_watch_playlist(videoId=video_id, radio=radio, limit=limit)
         tracks = res.get("tracks", []) if isinstance(res, dict) else []
         return [_entry_to_track(t) for t in tracks if t.get("videoId")]
 
     def get_library_songs(self, limit: int = 1000) -> list[Track]:
+        limiter("ytm_read").acquire()
         return [_entry_to_track(r) for r in self.yt.get_library_songs(limit=limit)]
 
     def get_liked_songs(self, limit: int = 1000) -> list[Track]:
+        limiter("ytm_read").acquire()
         res = self.yt.get_liked_songs(limit=limit)
         return [_entry_to_track(r) for r in res.get("tracks", [])]
 
     def get_history(self) -> list[Track]:
+        limiter("ytm_read").acquire()
         return [_entry_to_track(r) for r in self.yt.get_history()]
 
-    # --- writes (throttled) --------------------------------------------------
+    # --- writes (≤1 op / 2s, retried on transient server errors) -------------
+
+    def _write(self, fn):
+        from ytmusicapi.exceptions import YTMusicServerError
+
+        from merlin.ratelimit import transient_retry
+
+        limiter("ytm_write").acquire()
+        return transient_retry(YTMusicServerError, attempts=4)(fn)()
 
     def create_playlist(
         self, title: str, description: str = "", privacy: str = "PRIVATE"
     ) -> str:
-        self._throttle_write()
-        pid = self.yt.create_playlist(title, description, privacy_status=privacy)
+        pid = self._write(
+            lambda: self.yt.create_playlist(title, description, privacy_status=privacy)
+        )
         if not isinstance(pid, str):
             raise YTMusicError(f"create_playlist returned unexpected value: {pid!r}")
         return pid
 
     def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> Any:
-        self._throttle_write()
         # add_playlist_items is idempotent across reruns (no duplicate entries).
-        return self.yt.add_playlist_items(
-            playlist_id, video_ids, duplicates=False
+        return self._write(
+            lambda: self.yt.add_playlist_items(playlist_id, video_ids, duplicates=False)
         )
 
     def playlist_url(self, playlist_id: str) -> str:

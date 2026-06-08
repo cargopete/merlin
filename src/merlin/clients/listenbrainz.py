@@ -77,8 +77,13 @@ class ListenBrainzClient:
         )
 
     def lb_radio(self, prompt: str, mode: str = "medium") -> list[Track]:
-        r = self._client.get(
-            "/1/explore/lb-radio", params={"prompt": prompt, "mode": mode}
+        from merlin.ratelimit import rated_get
+
+        r = rated_get(
+            self._client,
+            "listenbrainz",
+            "/1/explore/lb-radio",
+            params={"prompt": prompt, "mode": mode},
         )
         if r.status_code == 401:
             # As of 2025 ListenBrainz requires a token for reads (AI-scraper defence).
@@ -114,7 +119,11 @@ class ListenBrainzLabsClient:
     def similar_recordings(
         self, mbid: str, algorithm: str = DEFAULT_SIMILAR_ALGORITHM
     ) -> list[tuple[Track, float]]:
-        r = self._client.get(
+        from merlin.ratelimit import rated_get
+
+        r = rated_get(
+            self._client,
+            "listenbrainz_labs",
             "/similar-recordings/json",
             params={"recording_mbids": mbid, "algorithm": algorithm},
         )
